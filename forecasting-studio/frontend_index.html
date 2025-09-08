@@ -1,0 +1,299 @@
+<!--
+Beautiful Frontend for Forecasting Studio
+File: frontend_index.html
+
+How to use:
+- Save this file as `static/index.html` in your project root or replace the HTML returned by app/main.py
+- The frontend talks to the existing endpoints: /upload, /backtest, /walkforward
+- It uses Tailwind Play CDN for styling and Chart.js for charts (both loaded from CDN)
+
+Notes:
+- This is a single-file HTML + CSS + JS solution so you can drop it into `app/static/index.html`
+  and then serve it with FastAPI's StaticFiles, or copy the HTML string into app/main.py's homepage.
+- The UI is responsive, uses glassmorphism cards, a left sidebar, and an interactive chart.
+- There are helpful inline comments explaining important sections.
+-->
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Forecasting Studio — Sleek UI</title>
+
+  <!-- Tailwind Play CDN for quick prototyping (no build step required) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js for plotting equity -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Inter font for nicer typography -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root { --glass: rgba(255,255,255,0.06); --glass-2: rgba(255,255,255,0.04); }
+    body { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
+
+    /* subtle animated background gradient */
+    .bg-animated {
+      background: linear-gradient(120deg, #0f172a 0%, #051530 30%, #0b2540 60%, #071024 100%);
+      background-size: 400% 400%;
+      animation: gradient 12s ease infinite;
+    }
+    @keyframes gradient {
+      0%{background-position:0% 50%}
+      50%{background-position:100% 50%}
+      100%{background-position:0% 50%}
+    }
+
+    /* glass card look */
+    .glass { background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02)); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.06); }
+
+    /* file drag hover */
+    .dragover { border-style: dashed !important; box-shadow: 0 6px 30px rgba(0,0,0,0.4) !important; }
+
+    /* small responsive tweaks */
+    @media (max-width: 900px) { .sidebar { display:none } }
+  </style>
+</head>
+<body class="bg-animated text-slate-100 min-h-screen">
+  <div class="max-w-7xl mx-auto p-6">
+    <div class="flex items-center justify-between mb-6">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg">
+          <!-- logo (simple chart icon) -->
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 17h3v4H3zM9 11h3v10H9zM15 7h3v14h-3z" fill="white" opacity="0.95"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-2xl font-semibold">Forecasting Studio</h1>
+          <p class="text-slate-300 text-sm">Run backtests & walk-forward tests — beautiful UI</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 text-slate-300">
+        <div class="px-3 py-2 rounded-md glass text-sm">Status: <span id="status">Idle</span></div>
+        <a href="#" class="px-3 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-sm shadow">Docs</a>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-12 gap-6">
+      <!-- Sidebar -->
+      <aside class="col-span-3 sidebar">
+        <div class="p-4 rounded-2xl glass shadow-sm">
+          <h2 class="text-lg font-semibold mb-2">Actions</h2>
+
+          <!-- CSV path & Upload -->
+          <label class="block text-slate-300 text-sm mb-1">CSV Path (relative)</label>
+          <input id="csvPath" class="w-full p-2 rounded-md bg-transparent border border-white/6 text-white text-sm mb-3" value="data/sample_prices.csv" />
+
+          <div class="mb-3">
+            <label class="block text-slate-300 text-sm mb-1">Or Upload CSV</label>
+            <div id="dropzone" class="p-3 rounded-md border border-dashed border-white/10 text-slate-300 text-sm flex items-center justify-between gap-3">
+              <span id="drop-text">Drag & drop or click to upload</span>
+              <input id="fileInput" type="file" accept=".csv" class="hidden" />
+              <button id="browseBtn" class="px-3 py-1 bg-slate-800/50 rounded-md text-sm">Browse</button>
+            </div>
+            <div id="uploadPreview" class="text-xs text-slate-400 mt-2"></div>
+          </div>
+
+          <div class="flex gap-2 mt-3">
+            <button id="backtestBtn" class="flex-1 px-3 py-2 rounded-md bg-gradient-to-r from-rose-500 to-orange-400 text-white font-semibold shadow hover:scale-[1.01] transition">Run Backtest</button>
+            <button id="wfBtn" class="w-12 px-3 py-2 rounded-md bg-slate-700 text-white" title="Walk-Forward">WF</button>
+          </div>
+
+          <div class="mt-4 text-slate-400 text-sm">
+            <p><strong>Strategy:</strong> SMA Crossover</p>
+            <div class="mt-2">
+              <label class="text-xs text-slate-300">Fast</label>
+              <input id="fast" type="number" min="1" value="10" class="w-full rounded-md p-1 mt-1 bg-transparent border border-white/6 text-white text-sm" />
+              <label class="text-xs text-slate-300 mt-2">Slow</label>
+              <input id="slow" type="number" min="1" value="30" class="w-full rounded-md p-1 mt-1 bg-transparent border border-white/6 text-white text-sm" />
+            </div>
+          </div>
+
+          <div class="mt-4 text-slate-400 text-xs">
+            <p>Tip: Use small sample data for demos. Walk-Forward does grid-search over chosen params.</p>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main content -->
+      <main class="col-span-9">
+        <div class="p-4 rounded-2xl glass shadow-lg">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold">Backtest Result</h3>
+            <div class="text-sm text-slate-400">Equity & metrics</div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <!-- Metric cards -->
+            <div class="p-3 rounded-lg glass flex flex-col">
+              <div class="text-sm text-slate-300">Total Return</div>
+              <div id="m_return" class="text-2xl font-bold mt-2">-</div>
+              <div class="text-xs text-slate-400 mt-1">Since start</div>
+            </div>
+            <div class="p-3 rounded-lg glass flex flex-col">
+              <div class="text-sm text-slate-300">Sharpe</div>
+              <div id="m_sharpe" class="text-2xl font-bold mt-2">-</div>
+              <div class="text-xs text-slate-400 mt-1">Risk-adjusted</div>
+            </div>
+            <div class="p-3 rounded-lg glass flex flex-col">
+              <div class="text-sm text-slate-300">Max Drawdown</div>
+              <div id="m_dd" class="text-2xl font-bold mt-2">-</div>
+              <div class="text-xs text-slate-400 mt-1">Worst drop</div>
+            </div>
+          </div>
+
+          <!-- Chart area -->
+          <div class="mb-4">
+            <canvas id="equityChart" height="120"></canvas>
+          </div>
+
+          <!-- Raw report -->
+          <details class="bg-transparent border border-white/6 p-3 rounded-md text-slate-300">
+            <summary class="cursor-pointer">Raw Report</summary>
+            <pre id="rawReport" class="mt-2 text-xs text-slate-200"></pre>
+          </details>
+        </div>
+
+        <!-- Walk-forward area -->
+        <div class="mt-6 p-4 rounded-2xl glass shadow-lg">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-lg font-semibold">Walk-Forward</h3>
+            <p class="text-sm text-slate-400">Insample / Out-of-sample testing</p>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label class="text-xs text-slate-300">Insample days</label>
+              <input id="insample" type="number" value="252" class="w-full rounded-md p-1 mt-1 bg-transparent border border-white/6 text-white text-sm" />
+            </div>
+            <div>
+              <label class="text-xs text-slate-300">Outsample days</label>
+              <input id="outsample" type="number" value="63" class="w-full rounded-md p-1 mt-1 bg-transparent border border-white/6 text-white text-sm" />
+            </div>
+            <div class="flex items-end">
+              <button id="runWF" class="w-full px-3 py-2 rounded-md bg-emerald-500 text-white font-semibold">Run Walk-Forward</button>
+            </div>
+          </div>
+
+          <div class="mt-4">
+            <pre id="wfReport" class="text-xs text-slate-300"></pre>
+          </div>
+        </div>
+
+      </main>
+    </div>
+
+    <footer class="mt-8 text-slate-400 text-sm text-center">
+      Built with ❤️ • Forecasting Studio • Demo UI
+    </footer>
+  </div>
+
+
+  <script>
+  // --------- Helper / DOM refs ----------
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+  const browseBtn = document.getElementById('browseBtn');
+  const uploadPreview = document.getElementById('uploadPreview');
+  const statusEl = document.getElementById('status');
+  const backtestBtn = document.getElementById('backtestBtn');
+  const wfBtn = document.getElementById('wfBtn');
+  const csvPathInput = document.getElementById('csvPath');
+  const fastInput = document.getElementById('fast');
+  const slowInput = document.getElementById('slow');
+  const rawReport = document.getElementById('rawReport');
+  const m_return = document.getElementById('m_return');
+  const m_sharpe = document.getElementById('m_sharpe');
+  const m_dd = document.getElementById('m_dd');
+  const wfReport = document.getElementById('wfReport');
+
+  // Chart.js instance
+  let chart = null;
+  function drawChart(labels, data){
+    const ctx = document.getElementById('equityChart').getContext('2d');
+    if(chart) chart.destroy();
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: labels, datasets: [{ label: 'Equity', data: data, fill: true, tension: 0.2, backgroundColor: 'rgba(99,102,241,0.12)', borderColor: 'rgba(99,102,241,0.95)', pointRadius: 0 }] },
+      options: { plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { beginAtZero: false } } }
+    });
+  }
+
+  // Drag & drop UI interactions
+  dropzone.addEventListener('click', ()=> fileInput.click());
+  browseBtn.addEventListener('click', ()=> fileInput.click());
+  dropzone.addEventListener('dragover', (e)=>{ e.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', ()=> dropzone.classList.remove('dragover'));
+  dropzone.addEventListener('drop', async (e)=>{
+    e.preventDefault(); dropzone.classList.remove('dragover');
+    const f = e.dataTransfer.files[0];
+    if(f) await uploadFile(f);
+  });
+  fileInput.addEventListener('change', async (e)=>{ const f = e.target.files[0]; if(f) await uploadFile(f); });
+
+  async function uploadFile(file){
+    if(!file.name.toLowerCase().endsWith('.csv')){ alert('Please upload a CSV'); return }
+    status('Uploading...');
+    const form = new FormData(); form.append('file', file);
+    try{
+      const res = await fetch('/upload', { method: 'POST', body: form });
+      if(!res.ok) throw await res.json();
+      const j = await res.json();
+      uploadPreview.innerText = `Saved to: ${j.saved_to} · Rows: ${j.rows} · Columns: ${j.columns.join(', ')}`;
+      csvPathInput.value = j.saved_to; // set path so backtest uses uploaded file
+      status('Uploaded');
+    }catch(err){
+      status('Upload error');
+      console.error(err);
+      alert('Upload failed: ' + JSON.stringify(err));
+    }
+  }
+
+  function status(s){ statusEl.innerText = s }
+
+  // BACKTEST
+  backtestBtn.addEventListener('click', async ()=>{
+    status('Running backtest...');
+    const payload = { csv_path: csvPathInput.value, strategy_name: 'sma_cross', params: { fast: Number(fastInput.value), slow: Number(slowInput.value) } };
+    try{
+      const res = await fetch('/backtest', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      if(!res.ok) throw await res.json();
+      const j = await res.json();
+      renderBacktest(j);
+      status('Done');
+    }catch(err){
+      console.error(err); alert('Backtest failed. ' + (err.detail || JSON.stringify(err))); status('Error');
+    }
+  });
+
+  function renderBacktest(j){
+    // update metrics
+    const r = j.report || j;
+    m_return.innerText = (r.total_return !== undefined) ? ( (r.total_return*100).toFixed(2) + '%' ) : '-';
+    m_sharpe.innerText = (r.sharpe!==undefined)? (Number(r.sharpe).toFixed(2)) : '-';
+    m_dd.innerText = (r.max_drawdown!==undefined)? ( (r.max_drawdown*100).toFixed(2) + '%' ) : '-';
+    rawReport.innerText = JSON.stringify(r, null, 2);
+    // chart
+    if(j.equity && j.timestamps) drawChart(j.timestamps, j.equity);
+  }
+
+  // WALK-FORWARD
+  document.getElementById('runWF').addEventListener('click', async ()=>{
+    status('Running walk-forward...');
+    const payload = { csv_path: csvPathInput.value, strategy_name: 'sma_cross', param_space: { fast: [5,10,20], slow: [30,50] }, insample_days: Number(document.getElementById('insample').value), outsample_days: Number(document.getElementById('outsample').value) };
+    try{
+      const res = await fetch('/walkforward', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      if(!res.ok) throw await res.json();
+      const j = await res.json();
+      wfReport.innerText = JSON.stringify(j, null, 2);
+      status('WF Done');
+    }catch(err){ console.error(err); wfReport.innerText = 'Walk-forward failed: ' + JSON.stringify(err); status('Error'); }
+  });
+
+  // quick demo: auto-run sample when page loads (comment out if not desired)
+  // window.addEventListener('load', ()=> document.getElementById('backtestBtn').click());
+
+  </script>
+</body>
+</html>
